@@ -1,4 +1,5 @@
 import fastf1
+import numpy as np
 import pandas as pd
 import argparse
 from constants import DRIVER_NUMBER_TO_DRIVER
@@ -161,22 +162,22 @@ def get_session_scores(session):
     sector_2_max_time_score = normalize(get_sector_2_max_time_score(lap_data))
     sector_3_max_time_score = normalize(get_sector_3_max_time_score(lap_data))
     total_score = (
-        lap_consistency_score
-        + min_time_score
-        + max_time_score
+        lap_consistency_score / 2
+        + min_time_score * 2
+        + max_time_score / 2
         + mean_time_score
-        + sector_1_consistency_score
-        + sector_2_consistency_score
-        + sector_3_consistency_score
-        + sector_1_time_score
-        + sector_2_time_score
-        + sector_3_time_score
+        + sector_1_consistency_score / 2
+        + sector_2_consistency_score / 2
+        + sector_3_consistency_score / 2
+        + sector_1_time_score * 2
+        + sector_2_time_score * 2
+        + sector_3_time_score * 2
         + sector_1_mean_time_score
         + sector_2_mean_time_score
         + sector_3_mean_time_score
-        + sector_1_max_time_score
-        + sector_2_max_time_score
-        + sector_3_max_time_score
+        + sector_1_max_time_score / 2
+        + sector_2_max_time_score / 2
+        + sector_3_max_time_score / 2
         + top_speed_score
     )
     score_df = pd.DataFrame(
@@ -195,7 +196,7 @@ def get_combined_free_practice_scores(year: int, gp: str):
         session_scores = get_session_scores(session=session)
         session_scores_list.append(session_scores)
 
-    combined_session_scores = (
+    combined_session_scores = normalize(
         pd.concat(session_scores_list, axis=0)
         .groupby(["DriverName"])
         .sum()
