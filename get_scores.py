@@ -1,213 +1,123 @@
-import fastf1
-import numpy as np
-import pandas as pd
+"""
+Performance scoring for F1 practice sessions.
+
+Calculates composite scores from lap telemetry across multiple dimensions:
+pace (best/mean/worst lap), consistency (std dev), sector times, and speed traps.
+All individual scores are normalized to [0, 1] before weighting.
+"""
+
+from __future__ import annotations
+
 import argparse
-from constants import DRIVER_NUMBER_TO_DRIVER
-from get_data import get_lap_data
+import logging
 
-pd.options.mode.chained_assignment = None
+import pandas as pd
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-gp", "--gp", help="GP String")
-args = parser.parse_args()
-fastf1.Cache.enable_cache("/Users/marcsperzel/Desktop/F1")
+from constants import SCORE_WEIGHTS, SPEED_COLUMNS
+from get_data import get_driver_map, get_lap_data, load_session
 
-
-def normalize(df: pd.DataFrame):
-    return (df - df.min()) / (df.max() - df.min())
+logger = logging.getLogger(__name__)
 
 
-def get_min_time_score(lap_data: pd.DataFrame):
-    # Measure best lap relative to field
-    score = 1 / (lap_data.LapTime_min / lap_data.LapTime_min.mean())
-    return score
+def normalize(series: pd.Series) -> pd.Series:
+    """Min-max normalize a series to [0, 1]."""
+    range_ = series.max() - series.min()
+    if range_ == 0:
+        return pd.Series(0.5, index=series.index)
+    return (series - series.min()) / range_
 
 
-def get_mean_time_score(lap_data: pd.DataFrame):
-    # Measure average lap relative to field
-    score = 1 / (lap_data.LapTime_mean / lap_data.LapTime_mean.mean())
-    return score
+def _inverse_ratio_score(values: pd.Series) -> pd.Series:
+    """Score where lower values are better (times): 1 / (value / mean)."""
+    return 1 / (values / values.mean())
 
 
-def get_max_time_score(lap_data: pd.DataFrame):
-    # Measure worst lap relative to field
-    score = 1 / (lap_data.LapTime_max / lap_data.LapTime_mean.max())
-    return score
+def _ratio_score(values: pd.Series) -> pd.Series:
+    """Score where higher values are better (speeds): value / mean."""
+    return values / values.mean()
 
 
-def get_lap_consistency_score(lap_data: pd.DataFrame):
-    # Measure consistency in lap times relative to field
-    score = 1 / (lap_data.LapTime_std / lap_data.LapTime_std.mean())
-    return score
+def compute_session_scores(session) -> pd.DataFrame:
+    """
+    Compute a weighted composite score for each driver in a session.
 
+    Scoring dimensions and their weights (from constants.SCORE_WEIGHTS):
+      - Lap time scores: best (2x), mean (1x), worst (0.5x)
+      - Lap consistency: std dev of lap times (0.5x)
+      - Per-sector scores: best/mean/worst time + consistency (3 sectors)
+      - Top speed: composite across all speed traps (1x)
 
-def get_sector_1_consistency_score(lap_data: pd.DataFrame):
-    # Measure consistency in sector times relative to field
-    score = 1 / (lap_data.Sector1Time_std / lap_data.Sector1Time_std.mean())
-    return score
-
-
-def get_sector_2_consistency_score(lap_data: pd.DataFrame):
-    # Measure consistency in sector times relative to field
-    score = 1 / (lap_data.Sector2Time_std / lap_data.Sector2Time_std.mean())
-    return score
-
-
-def get_sector_3_consistency_score(lap_data: pd.DataFrame):
-    # Measure consistency in sector times relative to field
-    score = 1 / (lap_data.Sector3Time_std / lap_data.Sector3Time_std.mean())
-    return score
-
-
-def get_sector_1_time_score(lap_data: pd.DataFrame):
-    # Measure fastest sector time relative to field
-    score = 1 / (lap_data.Sector1Time_min / lap_data.Sector1Time_min.mean())
-    return score
-
-
-def get_sector_2_time_score(lap_data: pd.DataFrame):
-    # Measure fastest sector time relative to field
-    score = 1 / (lap_data.Sector2Time_min / lap_data.Sector2Time_min.mean())
-    return score
-
-
-def get_sector_3_time_score(lap_data: pd.DataFrame):
-    # Measure fastest sector time relative to field
-    score = 1 / (lap_data.Sector3Time_min / lap_data.Sector3Time_min.mean())
-    return score
-
-
-def get_sector_1_mean_time_score(lap_data: pd.DataFrame):
-    # Measure average sector time relative to field
-    score = 1 / (lap_data.Sector1Time_mean / lap_data.Sector1Time_mean.mean())
-    return score
-
-
-def get_sector_2_mean_time_score(lap_data: pd.DataFrame):
-    # Measure average sector time relative to field
-    score = 1 / (lap_data.Sector2Time_mean / lap_data.Sector2Time_mean.mean())
-    return score
-
-
-def get_sector_3_mean_time_score(lap_data: pd.DataFrame):
-    # Measure average sector time relative to field
-    score = 1 / (lap_data.Sector3Time_mean / lap_data.Sector3Time_mean.mean())
-    return score
-
-
-def get_sector_1_max_time_score(lap_data: pd.DataFrame):
-    # Measure worst sector time relative to field
-    score = 1 / (lap_data.Sector1Time_max / lap_data.Sector1Time_max.mean())
-    return score
-
-
-def get_sector_2_max_time_score(lap_data: pd.DataFrame):
-    # Measure worst sector time relative to field
-    score = 1 / (lap_data.Sector2Time_max / lap_data.Sector2Time_max.mean())
-    return score
-
-
-def get_sector_3_max_time_score(lap_data: pd.DataFrame):
-    # Measure worst sector time relative to field
-    score = 1 / (lap_data.Sector3Time_max / lap_data.Sector3Time_max.mean())
-    return score
-
-
-def get_tire_life_score(lap_data: pd.DataFrame):
-    # Measure mean tire life relative to field
-    score = lap_data.TyreLife_mean / lap_data.TyreLife_mean.mean()
-    return score
-
-
-def get_top_speed_score(lap_data: pd.DataFrame):
-    # Measure top speed relative to field
-    speed_score = (
-        (lap_data.SpeedI1_max / lap_data.SpeedI1_max.mean())
-        + (lap_data.SpeedI2_max / lap_data.SpeedI2_max.mean())
-        + (lap_data.SpeedFL_max / lap_data.SpeedFL_max.mean())
-        + (lap_data.SpeedST_max / lap_data.SpeedST_max.mean())
-    )
-    return speed_score
-
-
-def get_compound_score(lap_data: pd.DataFrame):
-    # Measure mean tire life relative to field
-    score = 1 / (lap_data.Compound_mean / lap_data.Compound_mean.mean())
-    return score
-
-
-def get_tire_freshness_score(lap_data: pd.DataFrame):
-    # Measure mean tire freshness relative to field, older is better
-    score = lap_data.FreshTyre_mean / lap_data.FreshTyre_mean.mean()
-    return score
-
-
-def get_session_scores(session):
+    Returns a DataFrame with columns [Score, Driver] sorted descending.
+    """
     lap_data = get_lap_data(session)
-    min_time_score = normalize(get_min_time_score(lap_data))
-    mean_time_score = normalize(get_mean_time_score(lap_data))
-    max_time_score = normalize(get_max_time_score(lap_data))
-    lap_consistency_score = normalize(get_lap_consistency_score(lap_data))
-    top_speed_score = normalize(get_top_speed_score(lap_data))
-    sector_1_consistency_score = normalize(get_sector_1_consistency_score(lap_data))
-    sector_2_consistency_score = normalize(get_sector_2_consistency_score(lap_data))
-    sector_3_consistency_score = normalize(get_sector_3_consistency_score(lap_data))
-    sector_1_time_score = normalize(get_sector_1_time_score(lap_data))
-    sector_2_time_score = normalize(get_sector_2_time_score(lap_data))
-    sector_3_time_score = normalize(get_sector_3_time_score(lap_data))
-    sector_1_mean_time_score = normalize(get_sector_1_mean_time_score(lap_data))
-    sector_2_mean_time_score = normalize(get_sector_2_mean_time_score(lap_data))
-    sector_3_mean_time_score = normalize(get_sector_3_mean_time_score(lap_data))
-    sector_1_max_time_score = normalize(get_sector_1_max_time_score(lap_data))
-    sector_2_max_time_score = normalize(get_sector_2_max_time_score(lap_data))
-    sector_3_max_time_score = normalize(get_sector_3_max_time_score(lap_data))
-    total_score = (
-        lap_consistency_score / 2
-        + min_time_score * 2
-        + max_time_score / 2
-        + mean_time_score
-        + sector_1_consistency_score / 2
-        + sector_2_consistency_score / 2
-        + sector_3_consistency_score / 2
-        + sector_1_time_score * 2
-        + sector_2_time_score * 2
-        + sector_3_time_score * 2
-        + sector_1_mean_time_score
-        + sector_2_mean_time_score
-        + sector_3_mean_time_score
-        + sector_1_max_time_score / 2
-        + sector_2_max_time_score / 2
-        + sector_3_max_time_score / 2
-        + top_speed_score
+    if lap_data.empty:
+        return pd.DataFrame(columns=["Score", "Driver"])
+
+    w = SCORE_WEIGHTS
+    total = pd.Series(0.0, index=lap_data.index)
+
+    # --- Lap time scores ---
+    total += normalize(_inverse_ratio_score(lap_data["LapTime_min"])) * w["min_lap_time"]
+    total += normalize(_inverse_ratio_score(lap_data["LapTime_mean"])) * w["mean_lap_time"]
+    total += normalize(_inverse_ratio_score(lap_data["LapTime_max"])) * w["max_lap_time"]
+    total += normalize(_inverse_ratio_score(lap_data["LapTime_std"])) * w["lap_consistency"]
+
+    # --- Sector scores (same pattern for each of the 3 sectors) ---
+    for i in range(1, 4):
+        sector = f"Sector{i}Time"
+        total += normalize(_inverse_ratio_score(lap_data[f"{sector}_min"])) * w["sector_best_time"]
+        total += normalize(_inverse_ratio_score(lap_data[f"{sector}_mean"])) * w["sector_mean_time"]
+        total += normalize(_inverse_ratio_score(lap_data[f"{sector}_max"])) * w["sector_max_time"]
+        total += normalize(_inverse_ratio_score(lap_data[f"{sector}_std"])) * w["sector_consistency"]
+
+    # --- Top speed (composite across all speed traps) ---
+    speed_score = sum(
+        _ratio_score(lap_data[f"{col}_max"]) for col in SPEED_COLUMNS
     )
-    score_df = pd.DataFrame(
-        total_score.sort_values(ascending=False), columns=["Score"],
-    )
-    score_df["DriverName"] = score_df.index.to_series().map(DRIVER_NUMBER_TO_DRIVER)
-    return score_df
+    total += normalize(speed_score) * w["top_speed"]
+
+    # Build result
+    driver_map = get_driver_map(session)
+    result = pd.DataFrame({"Score": total}).sort_values("Score", ascending=False)
+    result["Driver"] = result.index.to_series().astype(str).map(driver_map)
+    return result
 
 
-def get_combined_free_practice_scores(year: int, gp: str):
-    training_sessions = ["FP1", "FP2"]
-    session_scores_list = []
-    for training_session in training_sessions:
-        session = fastf1.get_session(year, gp, training_session)
-        session.load()
-        session_scores = get_session_scores(session=session)
-        session_scores_list.append(session_scores)
+def get_combined_practice_scores(year: int, gp: str | int) -> pd.DataFrame:
+    """Load FP1+FP2, compute scores, and return combined rankings."""
+    all_scores = []
+    for fp in ["FP1", "FP2"]:
+        try:
+            session = load_session(year, gp, fp)
+            scores = compute_session_scores(session)
+            all_scores.append(scores)
+        except Exception:
+            logger.warning("Could not load %s %s %s", year, gp, fp, exc_info=True)
 
-    combined_session_scores = normalize(
-        pd.concat(session_scores_list, axis=0)
-        .groupby(["DriverName"])
+    if not all_scores:
+        return pd.DataFrame(columns=["Score", "Driver"])
+
+    combined = (
+        pd.concat(all_scores)
+        .groupby("Driver")["Score"]
         .sum()
-        .sort_values("Score", ascending=False)
+        .sort_values(ascending=False)
     )
-    print(combined_session_scores)
+    # Normalize combined scores
+    combined = normalize(combined)
+    return combined.to_frame("Score")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="F1 practice session performance scores")
+    parser.add_argument("--year", type=int, default=2024, help="Season year")
+    parser.add_argument("--gp", required=True, help="Grand Prix name (e.g. 'Bahrain')")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+    result = get_combined_practice_scores(args.year, args.gp)
+    print(result.to_string())
 
 
 if __name__ == "__main__":
-    get_combined_free_practice_scores(2022, args.gp)
-    # session = fastf1.get_session(2022, args.gp, "R")
-    # session.load()
-    # session_scores = get_session_scores(session=session)
-    # print(session_scores)
+    main()

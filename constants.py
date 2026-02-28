@@ -1,30 +1,14 @@
-DRIVER_NUMBER_TO_DRIVER = {
-    "55": "Sainz",
-    "51": "Fittipaldi",
-    "47": "Schumacher",
-    "44": "Hamilton",
-    "31": "Ocon",
-    "27": "Hulkenberg",
-    "24": "Guanyu",
-    "23": "Albon",
-    "22": "Tsunoda",
-    "20": "Magnussen",
-    "18": "Stroll",
-    "16": "Leclerc",
-    "14": "Alonso",
-    "11": "Perez",
-    "10": "Gasly",
-    "6": "Latifi",
-    "5": "Vettel",
-    "4": "Norris",
-    "3": "Ricciardo",
-    "63": "Russell",
-    "77": "Bottas",
-    "33": "Verstappen",
-    "1": "Verstappen",
-}
+"""
+F1 Analysis constants and configuration.
 
-LAP_DATA_CATEGORIES = [
+Driver/GP data is loaded dynamically from fastf1 for any season.
+The constants below define the telemetry columns and session types used throughout.
+"""
+
+from __future__ import annotations
+
+# Telemetry columns extracted per lap
+LAP_DATA_COLUMNS: list[str] = [
     "DriverNumber",
     "LapNumber",
     "LapTime",
@@ -39,28 +23,37 @@ LAP_DATA_CATEGORIES = [
     "TyreLife",
     "FreshTyre",
 ]
-TIME_DATA = ["LapTime", "Sector1Time", "Sector2Time", "Sector3Time"]
 
-TRAINING_SESSIONS = ["FP1", "FP2", "FP3"]
-GP_LIST = [
-    "Bahrain",
-    "Saudi-Arabian",
-    "Abu Dhabi",
-    "Portuguese",
-    "Spanish",
-    "Monaco",
-    "Azerbaijan",
-    "French",
-    "Styrian",
-    "Austrian",
-    "British",
-    "Hungarian",
-    "Belgian",
-    "Dutch",
-    "Italian",
-    "Russian",
-    "Turkish",
-    "United States",
-    "Mexican",
-    "Brazilian",
-]
+# Columns containing timedelta values that need conversion to seconds
+TIME_COLUMNS: list[str] = ["LapTime", "Sector1Time", "Sector2Time", "Sector3Time"]
+
+# Speed trap columns
+SPEED_COLUMNS: list[str] = ["SpeedI1", "SpeedI2", "SpeedFL", "SpeedST"]
+
+# Free practice sessions used for training data
+PRACTICE_SESSIONS: list[str] = ["FP1", "FP2", "FP3"]
+
+# Aggregation functions applied per driver
+AGGREGATIONS: list[str] = ["mean", "max", "min", "std"]
+
+# Tire compound encoding (fastf1 uses string names)
+COMPOUND_MAP: dict[str, int] = {
+    "HARD": 0,
+    "MEDIUM": 1,
+    "SOFT": 2,
+    "INTERMEDIATE": 3,
+    "WET": 4,
+}
+
+# Score weights for composite session scoring
+SCORE_WEIGHTS: dict[str, float] = {
+    "min_lap_time": 2.0,
+    "mean_lap_time": 1.0,
+    "max_lap_time": 0.5,
+    "lap_consistency": 0.5,
+    "sector_best_time": 2.0,      # applied per sector
+    "sector_mean_time": 1.0,      # applied per sector
+    "sector_max_time": 0.5,       # applied per sector
+    "sector_consistency": 0.5,    # applied per sector
+    "top_speed": 1.0,
+}
